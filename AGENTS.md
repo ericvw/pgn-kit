@@ -1,40 +1,70 @@
 # AGENTS.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
+
 ## Project Overview
 
-**PGN-Kit** is a modular suite of CLI utilities designed for the high-velocity processing of Portable Game Notation (PGN) data. It is written in Nim and follows a Unix-first philosophy ("one tool, one job").
+**PGN-Kit** is a modular suite of CLI utilities for high-velocity processing
+of Portable Game Notation (PGN) data. Written in Nim with a Unix-first
+philosophy, it decomposes chess data pipelines into discrete, pipeable stages
+linked via a streaming NDJSON interface.
 
-The project decomposes chess data workflows into discrete, pipeable stages (ingestion, lexical scanning, and syntactic parsing) linked via a streaming NDJSON interface.
+| Utility | Function | Input | Output |
+| :--- | :--- | :--- | :--- |
+| `pk-get` | Ingestion | Lichess/Chess.com API | Raw PGN stream |
+| `pk-lex` | Lexical Analysis | Raw PGN | NDJSON tokens |
+| `pk-parse` | Syntactic Analysis | NDJSON tokens | Annotated AST (JSON) |
 
-*   **Primary Utilities:**
-    *   `pk-get`: Ingestion from Lichess/Chess.com APIs.
-    *   `pk-lex`: Lexical Analysis (Raw PGN to NDJSON Tokens).
-    *   `pk-parse`: Syntactic Analysis (NDJSON Tokens to Annotated AST).
+Pipeline usage:
 
-## Building and Testing
+```bash
+pk-get --user=gm_aman | pk-lex | pk-parse > games.json
+```
 
-The project uses `nimble`, the Nim package manager, for building and testing.
+## Build and Test
 
-*   **Build the project:**
-    ```bash
-    nimble build
-    ```
-*   **Run tests:**
-    ```bash
-    nimble test
-    ```
-*   **Run the main lexer binary:**
-    ```bash
-    ./pk-lex
-    ```
+```bash
+nimble build    # produces ./pk-lex
+nimble test     # run all tests
+```
 
-## Development Conventions and Architecture
+To compile and run a single test file:
 
-*   **Language:** Nim (requires version >= 2.2.10).
-*   **Architecture:** Decoupled CLI architecture. Binaries are independent to ensure strict separation of concerns and enable multi-core parallelism through kernel-level piping.
-*   **Design Focus:** 
-    *   **Performance:** Systems-grade performance utilizing manual FSM-based scanners and recursive descent parsers.
-    *   **Memory Efficiency:** Zero-copy lexing optimized for high-throughput byte streaming with minimal memory allocations.
-*   **Data Interchange:** Utilities communicate via a minimized NDJSON schema. Tokens have the following structure: `{"t":"type","v":"value","l":line,"c":col,"p":pos}`.
-*   **Lexer (`pk-lex`):** Focuses on structural boundaries (delimiters, symbols, strings) using a "dumb" manual Finite State Machine (FSM), avoiding chess-specific semantics for better stability.
-*   **Testing Style:** The project uses the standard Nim `unittest` module. Test files are located in the `tests/` directory and should be prefixed with a `t` (e.g., `test1.nim`).
+```bash
+nim c -r tests/tfilename.nim
+```
+
+`tests/config.nims` adds `../src` to the Nim compiler path, so test files
+can import `pgn_kit/module` without additional flags.
+
+## Architecture
+
+**Naming conventions:** Source files use underscores (`pk_lex.nim`); compiled
+binaries use hyphens (`pk-lex`), as declared in `pgn_kit.nimble` via
+`namedBin["pk_lex"] = "pk-lex"`.
+
+**Lexer (`pk-lex`):** A manual FSM focusing on structural PGN boundaries —
+delimiters, symbols, quoted strings — without chess-domain semantics. This
+keeps the token schema stable across PGN variants.
+
+**Token NDJSON schema** (minimized for throughput):
+
+```json
+{"t":"sym","v":"e4","l":1,"c":4,"p":42}
+```
+
+| Field | Meaning |
+| :--- | :--- |
+| `t` | Token type: `sym`, `str`, `opn`, `cls`, `dot`, `com` |
+| `v` | Literal value |
+| `l` | Line number |
+| `c` | Column number |
+| `p` | Byte offset |
+
+**Parser (`pk-parse`):** Consumes the token stream to build an AST, handling
+Recursive Annotation Variations (RAVs) and move-text validation via recursive
+descent.
+
+**Testing:** Test files live in `tests/` and must be prefixed with `t` (e.g.,
+`tests/tlexer.nim`). Use the standard `unittest` module.
