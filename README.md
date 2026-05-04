@@ -71,6 +71,8 @@ lexer, focusing on structural boundaries (delimiters, symbols, strings) rather
 than chess semantics, ensuring the interface remains stable across different
 PGN variants.
 
+For a detailed breakdown of the FSM states, input buffering, and output handling, see the [pk-lex Design Decisions](docs/pk-lex-design.md).
+
 ### Syntactic Parsing
 The parser (`pk-parse`) consumes the token stream to build an AST, handling
 Recursive Annotation Variations (RAVs) and move-text validation.
