@@ -1,4 +1,4 @@
-const BufSize* = 65_536
+const BufSize* {.intdefine.} = 65_536
 const OutBufSize* = 4_096
 
 type TokenKind* = enum

@@ -4,14 +4,21 @@ import pgn_kit/lexer_types
 import pk_lex
 
 # Pipe-based harness: write input, close write end to signal EOF, run lex,
-# read all output. Safe only for inputs whose output fits in the kernel pipe
-# buffer (~64 KB). All test cases here are well within that limit.
+# read all output. Safe only for inputs that fit in the kernel pipe buffer
+# (~64 KB on Linux) — write to inPipe[1] blocks if input exceeds that limit.
 proc runLex(input: string): seq[JsonNode] =
   var inPipe, outPipe: array[2, cint]
   doAssert posix.pipe(inPipe) == 0
   doAssert posix.pipe(outPipe) == 0
-  if input.len > 0:
-    discard posix.write(inPipe[1], unsafeAddr input[0], input.len)
+  var remaining = input.len
+  var offset = 0
+  while remaining > 0:
+    let written = posix.write(inPipe[1], unsafeAddr input[offset], remaining)
+    if written < 0:
+      if errno == EINTR: continue
+      doAssert false, "write to pipe failed"
+    offset += written
+    remaining -= written
   discard posix.close(inPipe[1])
   lex(inPipe[0], outPipe[1])
   discard posix.close(outPipe[1])

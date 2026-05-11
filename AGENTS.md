@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
+This file provides guidance to AI coding assistants when working with
 code in this repository.
 
 ## Project Overview
@@ -68,3 +68,8 @@ descent.
 
 **Testing:** Test files live in `tests/` and must be prefixed with `t` (e.g.,
 `tests/tlexer.nim`). Use the standard `unittest` module.
+
+Binaries that rely on streaming IO (like `pk-lex`) parameterize their file
+descriptors (`inFd`, `outFd`) so they can be unit-tested in-process using
+POSIX pipes (`std/posix` `pipe()`), avoiding subprocess overhead. These boundary
+conditions are tested under a reduced 32-byte window as part of `nimble test`.

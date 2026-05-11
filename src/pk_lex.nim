@@ -11,7 +11,7 @@ proc fillBuffer(ctx: var LexerContext): bool =
     ctx.bufLen = remaining
     ctx.lexemeStart = 0
   elif ctx.bufLen == BufSize:
-    quit("pk-lex: token exceeds 64 KB", 1)
+    quit("pk-lex: token exceeds buffer (" & $BufSize & " bytes)", 1)
   var n: int
   while true:
     let r = posix.read(ctx.inFd, addr ctx.buffer[ctx.bufLen], BufSize - ctx.bufLen)
