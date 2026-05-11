@@ -14,7 +14,7 @@ This keeps the token schema stable across PGN variants (standard, Chess960,
 Crazyhouse) and confines chess-specific validation to `pk-parse`, where the
 full game context is available.
 
-Seven token kinds cover the entire PGN surface:
+Eight token kinds cover the entire PGN surface:
 
 | Kind  | Meaning          | Examples             |
 | :---- | :--------------- | :------------------- |
@@ -24,6 +24,7 @@ Seven token kinds cover the entire PGN surface:
 | `cls` | Closing bracket  | `]`, `)`             |
 | `dot` | Period           | `.`                  |
 | `com` | Comment          | `{text}`, `; text`   |
+| `esc` | PGN escape line  | `%escape line` (§6)  |
 | `err` | Malformed token  | Unterminated string or comment at EOF |
 
 ## Manual Finite State Machine
@@ -32,7 +33,7 @@ The lexer is a hand-written Mealy FSM rather than a generated parser or
 regex-based scanner.  A manual FSM gives predictable, branch-driven
 performance with no runtime dependencies beyond libc.
 
-Six states drive the machine:
+Seven states drive the machine:
 
 - **lsIdle** — between tokens; dispatches on the next byte.
 - **lsSymbol** — accumulating a symbol until a delimiter or whitespace.
@@ -40,6 +41,8 @@ Six states drive the machine:
 - **lsStringEscape** — the byte immediately after `\` inside a string.
 - **lsComment** — inside a `{…}` brace comment.
 - **lsLineComment** — after `;` until the next newline.
+- **lsEscapeLine** — after `%` at column 1 (PGN spec §6) until the next
+  newline; emitted as `esc`.
 
 `lsStringEscape` exists as an explicit state (rather than an inline flag)
 so that buffer refills only ever happen at the top of the main loop.  This
@@ -104,7 +107,7 @@ run concurrently.
 
 ### JSON Escaping
 
-`tkStr`, `tkCom`, and `tkErr` values are scanned for bytes that
+`tkStr`, `tkCom`, `tkEsc`, and `tkErr` values are scanned for bytes that
 require JSON escaping.  All other token kinds (`tkSym`, `tkOpn`, `tkCls`, `tkDot`)
 pass their values through unescaped; symbol terminators (`\n`, `\t`, space)
 ensure those values never contain control characters.
@@ -119,6 +122,10 @@ PGN comments can legally contain literal newlines (`{multi\nline}`), which
 is the primary reason this full escaping is necessary: a raw `\n` inside a
 JSON string value would both produce invalid JSON and break the NDJSON
 line-oriented streaming contract.
+
+### Carriage Return Trimming
+
+For line-oriented tokens — specifically semicolon comments (`tkCom`) and PGN escape lines (`tkEsc`) — any trailing carriage return (`\r`) resulting from a Windows-style `\r\n` line ending is stripped from the token value. This prevents `\r` from polluting token values and downstream AST nodes. Multi-line brace comments (`{...}`) preserve any literal carriage returns.
 
 ### Integer Formatting
 
@@ -141,7 +148,8 @@ pk-lex applies three tiers of error handling:
   `lsStringEscape` (retaining the trailing backslash verbatim in the token value),
   or `lsComment` emits a `tkErr` token containing whatever content was
   accumulated before EOF.  Unterminated line comments (`lsLineComment`) emit
-  `tkCom` at EOF — a missing trailing newline is not considered an error.
+  `tkCom` at EOF, and `lsEscapeLine` emits `tkEsc` at EOF — a missing trailing
+  newline is not considered an error.
 
 ## I/O Model
 

@@ -2,13 +2,18 @@ const BufSize* = 65_536
 const OutBufSize* = 4_096
 
 type TokenKind* = enum
-  tkSym, tkStr, tkOpn, tkCls, tkDot, tkCom, tkErr
+  tkSym, tkStr, tkOpn, tkCls, tkDot, tkCom, tkEsc, tkErr
 
 const tokenName*: array[TokenKind, string] =
-  ["sym", "str", "opn", "cls", "dot", "com", "err"]
+  ["sym", "str", "opn", "cls", "dot", "com", "esc", "err"]
+
+static:
+  for name in tokenName:
+    doAssert name.len == 3, "emitToken prefix assumes 3-char token names"
 
 type LexerState* = enum
-  lsIdle, lsSymbol, lsString, lsStringEscape, lsComment, lsLineComment
+  lsIdle, lsSymbol, lsString, lsStringEscape, lsComment, lsLineComment,
+  lsEscapeLine
 
 type LexerContext* = object
   bufPos*: int         ## scanning head

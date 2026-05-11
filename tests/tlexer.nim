@@ -43,6 +43,7 @@ suite "tokenName":
     check tokenName[tkCls] == "cls"
     check tokenName[tkDot] == "dot"
     check tokenName[tkCom] == "com"
+    check tokenName[tkEsc] == "esc"
     check tokenName[tkErr] == "err"
 
 suite "lex — delimiters":
@@ -150,11 +151,23 @@ suite "lex — strings":
     check toks[0].t == "str"
     check toks[0].v == "a\\\\nb"
 
+  test "string with control characters is escaped correctly":
+    let toks = runLex("\"a\tb\rc\"")
+    check toks.len == 1
+    check toks[0].t == "str"
+    check toks[0].v == "a\tb\rc"
+
   test "string with backspace, formfeed and low control characters is escaped correctly":
     let toks = runLex("\"a\x08b\x0Cc\x01d\"")
     check toks.len == 1
     check toks[0].t == "str"
     check toks[0].v == "a\x08b\x0Cc\x01d"
+
+  test "valid UTF-8 character pass-through":
+    let toks = runLex("\"Garry Kasparov vs Veselin Topalov, 1999 (👑)\"")
+    check toks.len == 1
+    check toks[0].t == "str"
+    check toks[0].v == "Garry Kasparov vs Veselin Topalov, 1999 (👑)"
 
 suite "lex — comments":
   test "curly-brace comment":
@@ -210,6 +223,63 @@ suite "lex — comments":
     check toks.len == 1
     check toks[0].t == "com"
     check toks[0].v == commentText
+
+  test "semicolon comment ending with \\r\\n trims \\r from value":
+    let toks = runLex("; comment\r\ne4")
+    check toks.len == 2
+    check toks[0].t == "com" and toks[0].v == " comment"
+    check toks[1].t == "sym" and toks[1].v == "e4"
+
+suite "lex — % escape lines":
+  test "% at column 1 on very first byte of input with no preceding content":
+    let toks = runLex("%foo\n")
+    check toks.len == 1
+    check toks[0].t == "esc" and toks[0].v == "foo"
+    check toks[0].l == 1 and toks[0].c == 1 and toks[0].p == 0
+
+  test "% mid-line is a normal symbol":
+    let toks = runLex("a %b")
+    check toks.len == 2
+    check toks[0].t == "sym" and toks[0].v == "a"
+    check toks[1].t == "sym" and toks[1].v == "%b"
+
+  test "% at column 1 without trailing newline emits tkEsc at EOF":
+    let toks = runLex("%no-newline")
+    check toks.len == 1
+    check toks[0].t == "esc" and toks[0].v == "no-newline"
+
+  test "empty % escape line emits tkEsc with empty value":
+    let toks = runLex("%\ne4")
+    check toks.len == 2
+    check toks[0].t == "esc" and toks[0].v == ""
+    check toks[1].t == "sym" and toks[1].v == "e4"
+
+  test "% at column 1 after \\r\\n line ending":
+    let toks = runLex("e4\r\n%escaped\ne5")
+    check toks.len == 3
+    check toks[0].t == "sym" and toks[0].v == "e4"
+    check toks[1].t == "esc" and toks[1].v == "escaped"
+    check toks[2].t == "sym" and toks[2].v == "e5"
+
+  test "bare % at EOF emits nothing":
+    let toks = runLex("%")
+    check toks.len == 0
+
+  test "escape line ending with \\r\\n trims \\r from value":
+    let toks = runLex("%escape\r\ne4")
+    check toks.len == 2
+    check toks[0].t == "esc" and toks[0].v == "escape"
+    check toks[1].t == "sym" and toks[1].v == "e4"
+
+  test "tkEsc with content containing control characters":
+    let toks = runLex("%esc\tcontrol\n")
+    check toks.len == 1
+    check toks[0].t == "esc" and toks[0].v == "esc\tcontrol"
+
+  test "tkEsc with backspace, formfeed and low control characters":
+    let toks = runLex("%esc\x08control\x0Cother\x01\n")
+    check toks.len == 1
+    check toks[0].t == "esc" and toks[0].v == "esc\x08control\x0Cother\x01"
 
 suite "lex — malformed input":
   test "unterminated string at EOF emits tkErr":
@@ -289,6 +359,26 @@ suite "lex — position tracking":
     check toks[0].l == 1 and toks[0].c == 1 and toks[0].p == 0
     check toks[1].l == 2 and toks[1].c == 1 and toks[1].p == 5
 
+  test "position and column tracking with carriage return trimming":
+    let toks = runLex("e4 ; comment\r\ne5")
+    check toks[0].l == 1 and toks[0].c == 1 and toks[0].p == 0
+    check toks[1].l == 1 and toks[1].c == 4 and toks[1].p == 3
+    check toks[2].l == 2 and toks[2].c == 1 and toks[2].p == 14
+
+  test "tkEsc position is correct":
+    let toks = runLex("e4\n%escaped\n")
+    check toks.len == 2
+    check toks[0].t == "sym" and toks[0].v == "e4"
+    check toks[1].t == "esc" and toks[1].v == "escaped"
+    check toks[1].l == 2 and toks[1].c == 1 and toks[1].p == 3
+
+  test "multi-line string position points to opening quote":
+    let toks = runLex("e4 \"line1\nline2\"")
+    check toks.len == 2
+    check toks[0].t == "sym" and toks[0].v == "e4"
+    check toks[1].t == "str" and toks[1].v == "line1\nline2"
+    check toks[1].l == 1 and toks[1].c == 4 and toks[1].p == 3
+
   test "column tracking after brace comment is correctly maintained":
     let toks = runLex("{comment}e4")
     check toks.len == 2
@@ -363,3 +453,69 @@ suite "lex — integration":
     check toks[30].t == "sym" and toks[30].v == "Nf6"
     check toks[31].t == "cls" and toks[31].v == ")"
     check toks[32].t == "sym" and toks[32].v == "1/2-1/2"
+
+  test "multiple games interleaved with % escape lines":
+    let pgn = "%escape at start\n" &
+              "[Event \"Game 1\"]\n" &
+              "[Result \"1-0\"]\n" &
+              "\n" &
+              "1. e4 1-0\n" &
+              "%escape between games\n" &
+              "[Event \"Game 2\"]\n" &
+              "[Result \"0-1\"]\n" &
+              "\n" &
+              "1. d4 0-1\n" &
+              "%escape at end"
+    let toks = runLex(pgn)
+    check toks.len == 27
+
+    # %escape at start
+    check toks[0].t == "esc" and toks[0].v == "escape at start"
+    check toks[0].l == 1 and toks[0].c == 1
+
+    # Game 1 header
+    check toks[1].t == "opn" and toks[1].v == "["
+    check toks[1].l == 2 and toks[1].c == 1
+    check toks[2].t == "sym" and toks[2].v == "Event"
+    check toks[3].t == "str" and toks[3].v == "Game 1"
+    check toks[4].t == "cls" and toks[4].v == "]"
+
+    check toks[5].t == "opn" and toks[5].v == "["
+    check toks[6].t == "sym" and toks[6].v == "Result"
+    check toks[7].t == "str" and toks[7].v == "1-0"
+    check toks[8].t == "cls" and toks[8].v == "]"
+
+    # Game 1 moves
+    check toks[9].t == "sym" and toks[9].v == "1"
+    check toks[9].l == 5 and toks[9].c == 1
+    check toks[10].t == "dot" and toks[10].v == "."
+    check toks[11].t == "sym" and toks[11].v == "e4"
+    check toks[12].t == "sym" and toks[12].v == "1-0"
+
+    # %escape between games
+    check toks[13].t == "esc" and toks[13].v == "escape between games"
+    check toks[13].l == 6 and toks[13].c == 1
+
+    # Game 2 header
+    check toks[14].t == "opn" and toks[14].v == "["
+    check toks[14].l == 7 and toks[14].c == 1
+    check toks[15].t == "sym" and toks[15].v == "Event"
+    check toks[16].t == "str" and toks[16].v == "Game 2"
+    check toks[17].t == "cls" and toks[17].v == "]"
+
+    check toks[18].t == "opn" and toks[18].v == "["
+    check toks[19].t == "sym" and toks[19].v == "Result"
+    check toks[20].t == "str" and toks[20].v == "0-1"
+    check toks[21].t == "cls" and toks[21].v == "]"
+
+    # Game 2 moves
+    check toks[22].t == "sym" and toks[22].v == "1"
+    check toks[22].l == 10 and toks[22].c == 1
+    check toks[23].t == "dot" and toks[23].v == "."
+    check toks[24].t == "sym" and toks[24].v == "d4"
+    check toks[25].t == "sym" and toks[25].v == "0-1"
+
+    # %escape at end
+    check toks[26].t == "esc" and toks[26].v == "escape at end"
+    check toks[26].l == 11 and toks[26].c == 1
+

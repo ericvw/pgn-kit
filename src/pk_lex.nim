@@ -111,7 +111,7 @@ proc emitToken(ctx: var LexerContext, kind: TokenKind,
   # Value: escaped for kinds that can contain control characters
   if valLen > 0:
     case kind
-    of tkStr, tkCom, tkErr:
+    of tkStr, tkCom, tkEsc, tkErr:
       writeEscaped(ctx, valStart, valLen)
     else:
       bufWrite(ctx, unsafeAddr ctx.buffer[valStart], valLen)
@@ -192,8 +192,24 @@ proc lex*(inFd, outFd: cint) =
         inc col; inc ctx.bufPos
         ctx.lexemeStart = ctx.bufPos
       of ord('}'):
+        # Stray closing brace outside a comment — silently skip. PGN does not
+        # define a meaning for unmatched } and erroring here would reject files
+        # that are otherwise valid.
         inc col; inc ctx.bufPos
         ctx.lexemeStart = ctx.bufPos
+      of ord('%'):
+        if col == 1:
+          tokLine = line; tokCol = col
+          tokPos = ctx.globalOffset + ctx.bufPos
+          inc col; inc ctx.bufPos
+          ctx.lexemeStart = ctx.bufPos
+          state = lsEscapeLine
+        else:
+          tokLine = line; tokCol = col
+          tokPos = ctx.globalOffset + ctx.bufPos
+          ctx.lexemeStart = ctx.bufPos
+          state = lsSymbol
+          inc col; inc ctx.bufPos
       else:
         tokLine = line; tokCol = col
         tokPos = ctx.globalOffset + ctx.bufPos
@@ -253,10 +269,15 @@ proc lex*(inFd, outFd: cint) =
       else:
         inc col; inc ctx.bufPos
 
-    of lsLineComment:
+    of lsLineComment, lsEscapeLine:
       if b == ord('\n'):
-        emitToken(ctx, tkCom,
-                  ctx.lexemeStart, ctx.bufPos - ctx.lexemeStart,
+        let kind = if state == lsEscapeLine: tkEsc else: tkCom
+        var vl = ctx.bufPos - ctx.lexemeStart
+        if vl > 0 and ctx.buffer[ctx.bufPos - 1] == ord('\r'):
+          dec vl
+          dec col
+        emitToken(ctx, kind,
+                  ctx.lexemeStart, vl,
                   tokLine, tokCol, tokPos)
         ctx.lexemeStart = ctx.bufPos
         state = lsIdle
@@ -270,10 +291,15 @@ proc lex*(inFd, outFd: cint) =
     let vl = ctx.bufPos - ctx.lexemeStart
     if vl > 0:
       emitToken(ctx, tkSym, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)
-  of lsLineComment:
-    let vl = ctx.bufPos - ctx.lexemeStart
+  of lsLineComment, lsEscapeLine:
+    var vl = ctx.bufPos - ctx.lexemeStart
     if vl > 0:
-      emitToken(ctx, tkCom, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)
+      if ctx.buffer[ctx.bufPos - 1] == ord('\r'):
+        dec vl
+        dec col
+      if vl > 0:
+        let kind = if state == lsEscapeLine: tkEsc else: tkCom
+        emitToken(ctx, kind, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)
   of lsString, lsStringEscape, lsComment:
     let vl = ctx.bufPos - ctx.lexemeStart
     emitToken(ctx, tkErr, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)

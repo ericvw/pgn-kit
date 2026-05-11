@@ -56,7 +56,7 @@ keeps the token schema stable across PGN variants.
 
 | Field | Meaning |
 | :--- | :--- |
-| `t` | Token type: `sym`, `str`, `opn`, `cls`, `dot`, `com`, `err` |
+| `t` | Token type: `sym`, `str`, `opn`, `cls`, `dot`, `com`, `esc`, `err` |
 | `v` | Literal value |
 | `l` | Line number |
 | `c` | Column number |
