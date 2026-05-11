@@ -108,10 +108,10 @@ proc emitToken(ctx: var LexerContext, kind: TokenKind,
   pfx[12] = 'v'; pfx[13] = '"'; pfx[14] = ':'; pfx[15] = '"'
   bufWrite(ctx, addr pfx[0], 16)
 
-  # Value: escaped for tkStr/tkCom; zero-copy for all other kinds
+  # Value: escaped for kinds that can contain control characters
   if valLen > 0:
     case kind
-    of tkStr, tkCom:
+    of tkStr, tkCom, tkErr:
       writeEscaped(ctx, valStart, valLen)
     else:
       bufWrite(ctx, unsafeAddr ctx.buffer[valStart], valLen)
@@ -276,9 +276,7 @@ proc lex*(inFd, outFd: cint) =
       emitToken(ctx, tkCom, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)
   of lsString, lsStringEscape, lsComment:
     let vl = ctx.bufPos - ctx.lexemeStart
-    if vl > 0:
-      let kind = if state in {lsString, lsStringEscape}: tkStr else: tkCom
-      emitToken(ctx, kind, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)
+    emitToken(ctx, tkErr, ctx.lexemeStart, vl, tokLine, tokCol, tokPos)
   else: discard
   flushOut(ctx)
 

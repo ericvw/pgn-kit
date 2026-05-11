@@ -43,6 +43,7 @@ suite "tokenName":
     check tokenName[tkCls] == "cls"
     check tokenName[tkDot] == "dot"
     check tokenName[tkCom] == "com"
+    check tokenName[tkErr] == "err"
 
 suite "lex — delimiters":
   test "empty input yields no tokens":
@@ -211,6 +212,26 @@ suite "lex — comments":
     check toks[0].v == commentText
 
 suite "lex — malformed input":
+  test "unterminated string at EOF emits tkErr":
+    let toks = runLex("\"unterminated")
+    check toks.len == 1
+    check toks[0].t == "err"
+    check toks[0].v == "unterminated"
+    check toks[0].l == 1 and toks[0].c == 1 and toks[0].p == 0
+
+  test "unterminated brace comment at EOF emits tkErr":
+    let toks = runLex("{unterminated")
+    check toks.len == 1
+    check toks[0].t == "err"
+    check toks[0].v == "unterminated"
+    check toks[0].l == 1 and toks[0].c == 1 and toks[0].p == 0
+
+  test "unterminated string escape at EOF emits tkErr":
+    let toks = runLex("\"abc\\")
+    check toks.len == 1
+    check toks[0].t == "err"
+    check toks[0].v == "abc\\"
+
   test "unterminated line comment at EOF emits tkCom":
     let toks = runLex("; no newline")
     check toks.len == 1
@@ -220,6 +241,35 @@ suite "lex — malformed input":
   test "bare ; at EOF emits nothing":
     let toks = runLex(";")
     check toks.len == 0
+
+  test "unterminated empty string at EOF emits tkErr":
+    let toks = runLex("\"")
+    check toks.len == 1
+    check toks[0].t == "err" and toks[0].v == ""
+
+  test "unterminated empty comment at EOF emits tkErr":
+    let toks = runLex("{")
+    check toks.len == 1
+    check toks[0].t == "err" and toks[0].v == ""
+
+  test "tkErr position following valid tokens is correct":
+    let toks = runLex("e4 \"unterminated")
+    check toks.len == 2
+    check toks[0].t == "sym" and toks[0].v == "e4"
+    check toks[1].t == "err" and toks[1].v == "unterminated"
+    check toks[1].l == 1 and toks[1].c == 4 and toks[1].p == 3
+
+  test "unterminated string with special control characters at EOF":
+    let toks = runLex("\"a\x08b\x0Cc\x01d")
+    check toks.len == 1
+    check toks[0].t == "err"
+    check toks[0].v == "a\x08b\x0Cc\x01d"
+
+  test "unterminated line comment ending with \\r at EOF":
+    let toks = runLex("; comment\r")
+    check toks.len == 1
+    check toks[0].t == "com"
+    check toks[0].v == " comment"
 
 suite "lex — position tracking":
   test "byte offset, line, col on tag pair":

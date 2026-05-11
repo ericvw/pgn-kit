@@ -2,10 +2,10 @@ const BufSize* = 65_536
 const OutBufSize* = 4_096
 
 type TokenKind* = enum
-  tkSym, tkStr, tkOpn, tkCls, tkDot, tkCom
+  tkSym, tkStr, tkOpn, tkCls, tkDot, tkCom, tkErr
 
 const tokenName*: array[TokenKind, string] =
-  ["sym", "str", "opn", "cls", "dot", "com"]
+  ["sym", "str", "opn", "cls", "dot", "com", "err"]
 
 type LexerState* = enum
   lsIdle, lsSymbol, lsString, lsStringEscape, lsComment, lsLineComment

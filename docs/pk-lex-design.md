@@ -14,7 +14,7 @@ This keeps the token schema stable across PGN variants (standard, Chess960,
 Crazyhouse) and confines chess-specific validation to `pk-parse`, where the
 full game context is available.
 
-Six token kinds cover the entire PGN surface:
+Seven token kinds cover the entire PGN surface:
 
 | Kind  | Meaning          | Examples             |
 | :---- | :--------------- | :------------------- |
@@ -24,6 +24,7 @@ Six token kinds cover the entire PGN surface:
 | `cls` | Closing bracket  | `]`, `)`             |
 | `dot` | Period           | `.`                  |
 | `com` | Comment          | `{text}`, `; text`   |
+| `err` | Malformed token  | Unterminated string or comment at EOF |
 
 ## Manual Finite State Machine
 
@@ -103,11 +104,21 @@ run concurrently.
 
 ### JSON Escaping
 
-Only `"` and `\` characters require escaping in the NDJSON output, and
-only `tkStr` and `tkCom` token values can contain them.  All other token
-kinds (`tkSym`, `tkOpn`, `tkCls`, `tkDot`) pass their values through
-unescaped, referencing the input buffer directly.  This selective approach
-avoids per-byte scanning for the majority of tokens.
+`tkStr`, `tkCom`, and `tkErr` values are scanned for bytes that
+require JSON escaping.  All other token kinds (`tkSym`, `tkOpn`, `tkCls`, `tkDot`)
+pass their values through unescaped; symbol terminators (`\n`, `\t`, space)
+ensure those values never contain control characters.
+
+Escaping follows RFC 8259: any byte below 0x20 must be escaped, as must
+`"` and `\`.  Common control characters map to their two-byte JSON sequences
+(`\n`, `\r`, `\t`, `\b`, `\f`); the remaining control bytes map to
+six-byte `\u00XX` sequences.  Escape strings are built into a stack-allocated
+`array[6, char]` — no heap allocation on the hot path.
+
+PGN comments can legally contain literal newlines (`{multi\nline}`), which
+is the primary reason this full escaping is necessary: a raw `\n` inside a
+JSON string value would both produce invalid JSON and break the NDJSON
+line-oriented streaming contract.
 
 ### Integer Formatting
 
@@ -115,6 +126,22 @@ avoids per-byte scanning for the majority of tokens.
 format-string parsing.  It builds the digit sequence right-to-left in a
 small stack buffer, then copies the result into the output array.  This
 avoids pulling in Nim's string formatting machinery on the hot path.
+
+## Error Contract
+
+pk-lex applies three tiers of error handling:
+
+- **Fail-fast:** I/O errors (`read`/`write` failures) and tokens exceeding
+  the buffer limit (`BufSize`, default 64 KB) terminate immediately with a
+  non-zero exit status.
+- **Best-effort pass-through:** Invalid ASCII or non-UTF-8 bytes inside
+  string or comment content are forwarded verbatim (after JSON escaping).
+  Encoding validation is the responsibility of downstream consumers.
+- **Error signaling:** Reaching EOF while inside `lsString`,
+  `lsStringEscape` (retaining the trailing backslash verbatim in the token value),
+  or `lsComment` emits a `tkErr` token containing whatever content was
+  accumulated before EOF.  Unterminated line comments (`lsLineComment`) emit
+  `tkCom` at EOF — a missing trailing newline is not considered an error.
 
 ## I/O Model
 
