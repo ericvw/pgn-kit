@@ -18,7 +18,7 @@ Eight token kinds cover the entire PGN surface:
 
 | Kind  | Meaning          | Examples             |
 | :---- | :--------------- | :------------------- |
-| `sym` | Symbol           | `e4`, `Nf3`, `1-0`  |
+| `sym` | Symbol           | `e4`, `Nf3`, `1-0`, `*`, `<` |
 | `str` | Quoted string    | `"Kasparov, Garry"`  |
 | `opn` | Opening bracket  | `[`, `(`             |
 | `cls` | Closing bracket  | `]`, `)`             |
@@ -26,6 +26,8 @@ Eight token kinds cover the entire PGN surface:
 | `com` | Comment          | `{text}`, `; text`   |
 | `esc` | PGN escape line  | `%escape line` (§6)  |
 | `err` | Malformed token  | Unterminated string or comment at EOF |
+
+*Note: The self-terminating tokens `*`, `<`, and `>` are emitted as single-character `sym` tokens, maintaining a simple token schema while correctly observing structural boundaries.*
 
 ## Manual Finite State Machine
 

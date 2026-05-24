@@ -167,6 +167,11 @@ proc lex*(inFd, outFd: cint) =
                   ctx.globalOffset + ctx.bufPos)
         inc col; inc ctx.bufPos
         ctx.lexemeStart = ctx.bufPos
+      of ord('*'), ord('<'), ord('>'):
+        emitToken(ctx, tkSym, ctx.bufPos, 1, line, col,
+                  ctx.globalOffset + ctx.bufPos)
+        inc col; inc ctx.bufPos
+        ctx.lexemeStart = ctx.bufPos
       of ord('"'):
         tokLine = line; tokCol = col
         tokPos = ctx.globalOffset + ctx.bufPos
@@ -221,7 +226,8 @@ proc lex*(inFd, outFd: cint) =
       case b
       of ord(' '), ord('\t'), ord('\r'), ord('\n'),
          ord('['), ord(']'), ord('('), ord(')'),
-         ord('{'), ord('}'), ord('"'), ord('.'), ord(';'):
+         ord('{'), ord('}'), ord('"'), ord('.'), ord(';'),
+         ord('*'), ord('<'), ord('>'):
         emitToken(ctx, tkSym,
                   ctx.lexemeStart, ctx.bufPos - ctx.lexemeStart,
                   tokLine, tokCol, tokPos)

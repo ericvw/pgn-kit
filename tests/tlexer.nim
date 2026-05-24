@@ -140,6 +140,30 @@ suite "lex — symbols":
     check toks[0].t == "sym" and toks[0].v == "1-0"
     check toks[1].t == "sym" and toks[1].v == "0-1"
 
+  test "self-terminating token * after symbol":
+    let toks = runLex("1-0*")
+    check toks.len == 2
+    check toks[0].t == "sym" and toks[0].v == "1-0"
+    check toks[1].t == "sym" and toks[1].v == "*"
+
+  test "self-terminating token * at EOF without trailing whitespace":
+    let toks = runLex("*")
+    check toks.len == 1
+    check toks[0].t == "sym" and toks[0].v == "*"
+
+  test "self-terminating tokens < and >":
+    let toks = runLex("<reserved>")
+    check toks.len == 3
+    check toks[0].t == "sym" and toks[0].v == "<"
+    check toks[1].t == "sym" and toks[1].v == "reserved"
+    check toks[2].t == "sym" and toks[2].v == ">"
+
+  test "adjacent angle brackets":
+    let toks = runLex("<>")
+    check toks.len == 2
+    check toks[0].t == "sym" and toks[0].v == "<"
+    check toks[1].t == "sym" and toks[1].v == ">"
+
 suite "lex — strings":
   test "basic string":
     let toks = runLex("\"Test\"")

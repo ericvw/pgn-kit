@@ -57,7 +57,7 @@ debugging:
 {"t":"dot","v":".","l":1,"c":5,"p":43}
 ```
 
-* `t`: Token type (sym, str, opn, cls, dot, com, esc, err)
+* `t`: Token type (sym [incl. `*`, `<`, `>`], str, opn, cls, dot, com, esc, err)
 * `v`: Literal value
 * `l`: Line number
 * `c`: Column number
