@@ -164,6 +164,19 @@ suite "lex — symbols":
     check toks[0].t == "sym" and toks[0].v == "<"
     check toks[1].t == "sym" and toks[1].v == ">"
 
+  test "symbol with backslash or control characters is escaped correctly in JSON":
+    let toks = runLex("e4\\Nf3")
+    check toks.len == 1
+    check toks[0].t == "sym" and toks[0].v == "e4\\Nf3"
+
+    let toks2 = runLex("e4\\")
+    check toks2.len == 1
+    check toks2[0].t == "sym" and toks2[0].v == "e4\\"
+
+    let toks3 = runLex("e4\x01")
+    check toks3.len == 1
+    check toks3[0].t == "sym" and toks3[0].v == "e4\x01"
+
 suite "lex — strings":
   test "basic string":
     let toks = runLex("\"Test\"")
