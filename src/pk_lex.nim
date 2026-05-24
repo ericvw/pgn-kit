@@ -74,22 +74,22 @@ proc writeEscaped(ctx: var LexerContext, valStart, valLen: int) =
   var segStart = valStart
   for i in 0 ..< valLen:
     let b = ctx.buffer[valStart + i]
-    if b < 0x20 or b == ord('"') or b == ord('\\'):
+    if b < '\x20' or b == '"' or b == '\\':
       if valStart + i > segStart:
         bufWrite(ctx, unsafeAddr ctx.buffer[segStart], valStart + i - segStart)
       var esc: array[6, char]
       var escLen: int
       case b
-      of 0x08: esc[0] = '\\'; esc[1] = 'b'; escLen = 2
-      of 0x09: esc[0] = '\\'; esc[1] = 't'; escLen = 2
-      of 0x0A: esc[0] = '\\'; esc[1] = 'n'; escLen = 2
-      of 0x0C: esc[0] = '\\'; esc[1] = 'f'; escLen = 2
-      of 0x0D: esc[0] = '\\'; esc[1] = 'r'; escLen = 2
-      of ord('"'): esc[0] = '\\'; esc[1] = '"'; escLen = 2
-      of ord('\\'): esc[0] = '\\'; esc[1] = '\\'; escLen = 2
+      of '\x08': esc[0] = '\\'; esc[1] = 'b'; escLen = 2
+      of '\x09': esc[0] = '\\'; esc[1] = 't'; escLen = 2
+      of '\x0A': esc[0] = '\\'; esc[1] = 'n'; escLen = 2
+      of '\x0C': esc[0] = '\\'; esc[1] = 'f'; escLen = 2
+      of '\x0D': esc[0] = '\\'; esc[1] = 'r'; escLen = 2
+      of '"': esc[0] = '\\'; esc[1] = '"'; escLen = 2
+      of '\\': esc[0] = '\\'; esc[1] = '\\'; escLen = 2
       else:
         esc[0] = '\\'; esc[1] = 'u'; esc[2] = '0'; esc[3] = '0'
-        esc[4] = hex[int(b) shr 4]; esc[5] = hex[int(b) and 0xF]
+        esc[4] = hex[int(uint8(b)) shr 4]; esc[5] = hex[int(uint8(b)) and 0xF]
         escLen = 6
       bufWrite(ctx, addr esc[0], escLen)
       segStart = valStart + i + 1
@@ -144,6 +144,37 @@ proc lex*(inFd, outFd: cint) =
   var tokLine, tokCol: int
   var tokPos: int64
 
+  template emitSingleChar(kind: TokenKind) =
+    emitToken(ctx, kind, ctx.bufPos, 1, line, col, ctx.globalOffset + ctx.bufPos)
+    inc col; inc ctx.bufPos
+    ctx.lexemeStart = ctx.bufPos
+
+  template startToken(newState: LexerState) =
+    tokLine = line; tokCol = col
+    tokPos = ctx.globalOffset + ctx.bufPos
+    inc col; inc ctx.bufPos
+    ctx.lexemeStart = ctx.bufPos
+    state = newState
+
+  template startSymbol() =
+    tokLine = line; tokCol = col
+    tokPos = ctx.globalOffset + ctx.bufPos
+    ctx.lexemeStart = ctx.bufPos
+    state = lsSymbol
+    inc col; inc ctx.bufPos
+
+  template emitTokenAndIdle(kind: TokenKind) =
+    emitToken(ctx, kind,
+              ctx.lexemeStart, ctx.bufPos - ctx.lexemeStart,
+              tokLine, tokCol, tokPos)
+    inc col; inc ctx.bufPos
+    ctx.lexemeStart = ctx.bufPos
+    state = lsIdle
+
+  template skipChar() =
+    inc col; inc ctx.bufPos
+    ctx.lexemeStart = ctx.bufPos
+
   while true:
     if ctx.bufPos >= ctx.bufLen:
       if not fillBuffer(ctx): break
@@ -152,82 +183,35 @@ proc lex*(inFd, outFd: cint) =
     case state
     of lsIdle:
       case b
-      of ord('['), ord('('):
-        emitToken(ctx, tkOpn, ctx.bufPos, 1, line, col,
-                  ctx.globalOffset + ctx.bufPos)
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord(']'), ord(')'):
-        emitToken(ctx, tkCls, ctx.bufPos, 1, line, col,
-                  ctx.globalOffset + ctx.bufPos)
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord('.'):
-        emitToken(ctx, tkDot, ctx.bufPos, 1, line, col,
-                  ctx.globalOffset + ctx.bufPos)
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord('*'), ord('<'), ord('>'):
-        emitToken(ctx, tkSym, ctx.bufPos, 1, line, col,
-                  ctx.globalOffset + ctx.bufPos)
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord('"'):
-        tokLine = line; tokCol = col
-        tokPos = ctx.globalOffset + ctx.bufPos
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-        state = lsString
-      of ord('{'):
-        tokLine = line; tokCol = col
-        tokPos = ctx.globalOffset + ctx.bufPos
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-        state = lsComment
-      of ord(';'):
-        tokLine = line; tokCol = col
-        tokPos = ctx.globalOffset + ctx.bufPos
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-        state = lsLineComment
-      of ord('\n'):
-        inc line; col = 1; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord(' '), ord('\t'), ord('\r'):
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord('}'):
+      of '[', '(': emitSingleChar(tkOpn)
+      of ']', ')': emitSingleChar(tkCls)
+      of '.':      emitSingleChar(tkDot)
+      of '*', '<', '>': emitSingleChar(tkSym)
+      of '"':      startToken(lsString)
+      of '{':      startToken(lsComment)
+      of ';':      startToken(lsLineComment)
+      of '\n':     inc line; col = 1; inc ctx.bufPos; ctx.lexemeStart = ctx.bufPos
+      of ' ', '\t', '\r': skipChar()
+      of '}':
         # Stray closing brace outside a comment — silently skip. PGN does not
         # define a meaning for unmatched } and erroring here would reject files
         # that are otherwise valid.
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-      of ord('%'):
-        if col == 1:
-          tokLine = line; tokCol = col
-          tokPos = ctx.globalOffset + ctx.bufPos
-          inc col; inc ctx.bufPos
-          ctx.lexemeStart = ctx.bufPos
-          state = lsEscapeLine
-        else:
-          tokLine = line; tokCol = col
-          tokPos = ctx.globalOffset + ctx.bufPos
-          ctx.lexemeStart = ctx.bufPos
-          state = lsSymbol
-          inc col; inc ctx.bufPos
+        skipChar()
+      of '%':
+        if col == 1: startToken(lsEscapeLine)
+        else: startSymbol()
       else:
-        tokLine = line; tokCol = col
-        tokPos = ctx.globalOffset + ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-        state = lsSymbol
-        inc col; inc ctx.bufPos
+        startSymbol()
 
     of lsSymbol:
       case b
-      of ord(' '), ord('\t'), ord('\r'), ord('\n'),
-         ord('['), ord(']'), ord('('), ord(')'),
-         ord('{'), ord('}'), ord('"'), ord('.'), ord(';'),
-         ord('*'), ord('<'), ord('>'):
+      of ' ', '\t', '\r', '\n',
+         '[', ']', '(', ')',
+         '{', '}', '"', '.', ';',
+         '*', '<', '>':
+        # We don't use emitTokenAndIdle here because the terminator character
+        # shouldn't be consumed; it's merely detected so lsIdle can handle it
+        # on the next iteration.
         emitToken(ctx, tkSym,
                   ctx.lexemeStart, ctx.bufPos - ctx.lexemeStart,
                   tokLine, tokCol, tokPos)
@@ -238,23 +222,13 @@ proc lex*(inFd, outFd: cint) =
 
     of lsString:
       case b
-      of ord('"'):
-        emitToken(ctx, tkStr,
-                  ctx.lexemeStart, ctx.bufPos - ctx.lexemeStart,
-                  tokLine, tokCol, tokPos)
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-        state = lsIdle
-      of ord('\\'):
-        inc col; inc ctx.bufPos
-        state = lsStringEscape
-      of ord('\n'):
-        inc line; col = 1; inc ctx.bufPos
-      else:
-        inc col; inc ctx.bufPos
+      of '"':  emitTokenAndIdle(tkStr)
+      of '\\': inc col; inc ctx.bufPos; state = lsStringEscape
+      of '\n': inc line; col = 1; inc ctx.bufPos
+      else:    inc col; inc ctx.bufPos
 
     of lsStringEscape:
-      if b == ord('\n'):
+      if b == '\n':
         inc line; col = 1
       else:
         inc col
@@ -263,23 +237,15 @@ proc lex*(inFd, outFd: cint) =
 
     of lsComment:
       case b
-      of ord('}'):
-        emitToken(ctx, tkCom,
-                  ctx.lexemeStart, ctx.bufPos - ctx.lexemeStart,
-                  tokLine, tokCol, tokPos)
-        inc col; inc ctx.bufPos
-        ctx.lexemeStart = ctx.bufPos
-        state = lsIdle
-      of ord('\n'):
-        inc line; col = 1; inc ctx.bufPos
-      else:
-        inc col; inc ctx.bufPos
+      of '}':  emitTokenAndIdle(tkCom)
+      of '\n': inc line; col = 1; inc ctx.bufPos
+      else:    inc col; inc ctx.bufPos
 
     of lsLineComment, lsEscapeLine:
-      if b == ord('\n'):
+      if b == '\n':
         let kind = if state == lsEscapeLine: tkEsc else: tkCom
         var vl = ctx.bufPos - ctx.lexemeStart
-        if vl > 0 and ctx.buffer[ctx.bufPos - 1] == ord('\r'):
+        if vl > 0 and ctx.buffer[ctx.bufPos - 1] == '\r':
           dec vl
           dec col
         emitToken(ctx, kind,
@@ -300,7 +266,7 @@ proc lex*(inFd, outFd: cint) =
   of lsLineComment, lsEscapeLine:
     var vl = ctx.bufPos - ctx.lexemeStart
     if vl > 0:
-      if ctx.buffer[ctx.bufPos - 1] == ord('\r'):
+      if ctx.buffer[ctx.bufPos - 1] == '\r':
         dec vl
         dec col
       if vl > 0:

@@ -23,5 +23,5 @@ type LexerContext* = object
   globalOffset*: int64 ## bytes shifted out before the current window
   inFd*: cint          ## source file descriptor
   outFd*: cint         ## sink file descriptor
-  buffer*: array[BufSize, uint8]
-  outBuf*: array[OutBufSize, uint8]
+  buffer*: array[BufSize, char]
+  outBuf*: array[OutBufSize, char]
